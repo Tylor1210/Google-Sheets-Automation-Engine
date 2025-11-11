@@ -1,0 +1,129 @@
+/**
+ * CALLBACK TRACKER – FULL AUTOMATION
+ * Master → Monthly tabs (2025-September, 2025-October, …)
+ * Keeps everything in Master (only copies)
+ * Highlights today’s callbacks in YELLOW
+ */
+
+function runAll() {
+  copyToMonthlyTabs();
+  highlightTodaysCallbacks();
+  SpreadsheetApp.getUi().alert('Done! Rows copied + today’s calls highlighted in yellow.');
+}
+
+/* --------------------------------------------------------------
+   1. COPY ROWS FROM Master TO THE CORRECT MONTHLY TAB
+   -------------------------------------------------------------- */
+function copyToMonthlyTabs() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const master = ss.getSheetByName('Master');
+  if (!master) {
+    SpreadsheetApp.getUi().alert('Error: Sheet named "Master" not found!');
+    return;
+  }
+
+  const data = master.getDataRange().getValues();
+  if (data.length < 2) return;                     // no data
+
+  const headers = data[0];
+  const cbDateCol = headers.indexOf('CB Date');    // exact header text
+  if (cbDateCol === -1) {
+    SpreadsheetApp.getUi().alert('Error: Column "CB Date" not found in Master!');
+    return;
+  }
+
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    const raw = row[cbDateCol];
+    if (!raw) continue;
+
+    // ----- EXTRACT DATE (handles text like "9/1 AL shipping") -----
+    let dateStr = '';
+    if (raw instanceof Date) {
+      dateStr = Utilities.formatDate(raw, 'GMT', 'M/d');
+    } else {
+      const m = raw.toString().match(/\b(\d{1,2})\/(\d{1,2})\b/);
+      if (!m) continue;
+      dateStr = `${m[1]}/${m[2]}`;
+    }
+
+    const [month, day] = dateStr.split('/').map(Number);
+    const date = new Date(2025, month - 1, day);   // force 2025
+    if (isNaN(date.getTime())) continue;
+
+    const monthName = date.toLocaleString('default', { month: 'long' });
+    const targetName = `2025-${monthName}`;
+
+    // ----- GET OR CREATE MONTHLY TAB -----
+    let target = ss.getSheetByName(targetName);
+    if (!target) {
+      target = ss.insertSheet(targetName);
+      target.appendRow(headers);
+      target.getRange('C:C').setNumberFormat('mm/dd');
+      target.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+    }
+
+    // ----- AVOID DUPLICATES -----
+    const targetVals = target.getDataRange().getValues();
+    const alreadyThere = targetVals.slice(1).some(r =>
+      r[0] === row[0] &&               // Name
+      r[1] === row[1] &&               // Date
+      r[cbDateCol] && r[cbDateCol].toString() === raw.toString()
+    );
+    if (!alreadyThere) {
+      target.appendRow(row);
+    }
+  }
+}
+
+/* --------------------------------------------------------------
+   2. HIGHLIGHT TODAY’S CALLBACKS IN YELLOW (all monthly tabs)
+   -------------------------------------------------------------- */
+function highlightTodaysCallbacks() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const monthly = ss.getSheets().filter(s => /^\d{4}-[A-Za-z]+$/.test(s.getName()));
+
+  monthly.forEach(sheet => {
+    const lr = sheet.getLastRow();
+    if (lr < 2) return;
+
+    const range = sheet.getRange(`A2:Z${lr}`);
+    sheet.clearConditionalFormatRules();
+
+    const rule = SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=$C2=TODAY()')
+      .setBackground('#FFF9C4')          // light yellow
+      .setRanges([range])
+      .build();
+
+    sheet.setConditionalFormatRules([rule]);
+  });
+  SpreadsheetApp.flush();
+}
+
+/* --------------------------------------------------------------
+   3. OPTIONAL: CREATE ALL 12 MONTHLY TABS (run once)
+   -------------------------------------------------------------- */
+function createAllMonthlyTabs() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const master = ss.getSheetByName('Master');
+  if (!master) {
+    SpreadsheetApp.getUi().alert('Create a sheet named "Master" first!');
+    return;
+  }
+
+  const headers = master.getRange(1, 1, 1, master.getLastColumn()).getValues()[0];
+  const months = ["January","February","March","April","May","June",
+                  "July","August","September","October","November","December"];
+
+  months.forEach(m => {
+    const name = `2025-${m}`;
+    if (!ss.getSheetByName(name)) {
+      const sh = ss.insertSheet(name);
+      sh.appendRow(headers);
+      sh.getRange('C:C').setNumberFormat('mm/dd');
+      sh.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+    }
+  });
+  SpreadsheetApp.getUi().alert('All 12 monthly tabs created!');
+}
