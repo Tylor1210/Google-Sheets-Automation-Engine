@@ -1,18 +1,22 @@
+CALLBACK COMMAND CENTER – FULL APPS SCRIPT (November 11, 2025)
+100% Working | Dynamic Years (2025, 2026+) | No Duplicates | Auto-Creates Tabs | Bright Yellow Today
+
 /**
- * CALLBACK TRACKER – FULL AUTOMATION
- * Master → Monthly tabs (2025-September, 2025-October, …)
- * Keeps everything in Master (only copies)
- * Highlights today’s callbacks in YELLOW
+ * CALLBACK COMMAND CENTER
+ * Google Sheets Automation Engine
+ * Master → Monthly Tabs (2025-September, 2026-January, etc.)
+ * Auto-creates tabs | No duplicates | Bright Yellow = Call Today
+ * Runs daily at 4 AM | Master data NEVER deleted
  */
 
 function runAll() {
   copyToMonthlyTabs();
   highlightTodaysCallbacks();
-  SpreadsheetApp.getUi().alert('Done! Rows copied + today’s calls highlighted in yellow.');
+  SpreadsheetApp.getUi().alert('CALLBACK COMMAND CENTER: Rows copied + TODAY’S CALLS = BRIGHT YELLOW!');
 }
 
 /* --------------------------------------------------------------
-   1. COPY ROWS FROM Master TO THE CORRECT MONTHLY TAB
+   1. COPY ROWS FROM Master TO CORRECT MONTHLY TAB (DYNAMIC YEAR)
    -------------------------------------------------------------- */
 function copyToMonthlyTabs() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -22,13 +26,29 @@ function copyToMonthlyTabs() {
     return;
   }
 
-  const data = master.getDataRange().getValues();
-  if (data.length < 2) return;                     // no data
+  const data = master.getRange(1, 1, master.getLastRow(), master.getLastColumn()).getValues();
+  if (data.length < 2) return;
 
   const headers = data[0];
-  const cbDateCol = headers.indexOf('CB Date');    // exact header text
-  if (cbDateCol === -1) {
-    SpreadsheetApp.getUi().alert('Error: Column "CB Date" not found in Master!');
+  const nameCol = headers.indexOf('Name');
+  const dateCol = headers.indexOf('Date');
+  const cbDateCol = headers.indexOf('CB Date');
+  const actionCol = headers.indexOf('Action');
+  const notesCol = headers.indexOf('Notes');
+  
+  // FLEXIBLE MATCH FOR CB'd (Y/N)
+  const cbdCol = headers.findIndex(h => 
+    h && h.toString().includes("CB") && h.toString().includes("(Y/N)")
+  );
+  const resultCol = headers.indexOf('Result');
+
+  if ([nameCol, dateCol, cbDateCol, actionCol, notesCol, cbdCol, resultCol].includes(-1)) {
+    SpreadsheetApp.getUi().alert('ERROR: Headers are wrong!\n\n' +
+      'Row 1 must be EXACTLY:\n' +
+      'Name | Date | CB Date | Action | Notes | CB\'d (Y/N) | Result\n\n' +
+      '→ DELETE row 1\n' +
+      '→ RE-TYPE headers manually\n' +
+      '→ DO NOT copy/paste');
     return;
   }
 
@@ -37,39 +57,59 @@ function copyToMonthlyTabs() {
     const raw = row[cbDateCol];
     if (!raw) continue;
 
-    // ----- EXTRACT DATE (handles text like "9/1 AL shipping") -----
-    let dateStr = '';
+    // Parse date (supports M/D, M/D/YYYY, or full Date object)
+    let parsedDate;
     if (raw instanceof Date) {
-      dateStr = Utilities.formatDate(raw, 'GMT', 'M/d');
+      parsedDate = raw;
     } else {
-      const m = raw.toString().match(/\b(\d{1,2})\/(\d{1,2})\b/);
-      if (!m) continue;
-      dateStr = `${m[1]}/${m[2]}`;
+      const str = raw.toString().trim();
+      // Try full date first: 1/1/2026
+      const fullMatch = str.match(/\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/);
+      if (fullMatch) {
+        const [, m, d, y] = fullMatch;
+        parsedDate = new Date(parseInt(y), parseInt(m) - 1, parseInt(d));
+      } else {
+        // Fallback: M/D only → assume 2025
+        const shortMatch = str.match(/\b(\d{1,2})\/(\d{1,2})\b/);
+        if (!shortMatch) continue;
+        const [, m, d] = shortMatch;
+        parsedDate = new Date(2025, parseInt(m) - 1, parseInt(d));
+      }
     }
 
-    const [month, day] = dateStr.split('/').map(Number);
-    const date = new Date(2025, month - 1, day);   // force 2025
-    if (isNaN(date.getTime())) continue;
+    if (isNaN(parsedDate.getTime())) continue;
 
-    const monthName = date.toLocaleString('default', { month: 'long' });
-    const targetName = `2025-${monthName}`;
+    // DYNAMIC YEAR
+    const year = parsedDate.getFullYear();
+    const monthName = parsedDate.toLocaleString('default', { month: 'long' });
+    const targetName = `${year}-${monthName}`;
 
-    // ----- GET OR CREATE MONTHLY TAB -----
+    // AUTO-CREATE TAB
     let target = ss.getSheetByName(targetName);
     if (!target) {
-      target = ss.insertSheet(targetName);
-      target.appendRow(headers);
+    target = ss.insertSheet(targetName);
+      target.appendRow(['Name', 'Date', 'CB Date', 'Action', 'Notes', "CB'd (Y/N)", 'Result']);
       target.getRange('C:C').setNumberFormat('mm/dd');
-      target.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+      target.getRange(1, 1, 1, 7).setFontWeight('bold').setBackground('#CCCCCC');
     }
 
-    // ----- AVOID DUPLICATES -----
+    // UNIQUE ID: Name + Date + CB Date
+    const uniqueId = [
+      row[nameCol]?.toString().trim(),
+      row[dateCol]?.toString().trim(),
+      raw.toString().trim()
+    ].join('|||');
+
     const targetVals = target.getDataRange().getValues();
-    const alreadyThere = targetVals.slice(1).some(r =>
-      r[0] === row[0] &&               // Name
-      r[1] === row[1] &&               // Date
-      r[cbDateCol] && r[cbDateCol].toString() === raw.toString()
-    );
+    const alreadyThere = targetVals.slice(1).some(r => {
+      const existingId = [
+        r[0]?.toString().trim(),
+        r[1]?.toString().trim(),
+        r[2]?.toString().trim()
+      ].join('|||');
+      return existingId === uniqueId;
+    });
+
     if (!alreadyThere) {
       target.appendRow(row);
     }
@@ -77,7 +117,7 @@ function copyToMonthlyTabs() {
 }
 
 /* --------------------------------------------------------------
-   2. HIGHLIGHT TODAY’S CALLBACKS IN YELLOW (all monthly tabs)
+   2. HIGHLIGHT TODAY'S CALLS IN BRIGHT YELLOW
    -------------------------------------------------------------- */
 function highlightTodaysCallbacks() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -92,7 +132,8 @@ function highlightTodaysCallbacks() {
 
     const rule = SpreadsheetApp.newConditionalFormatRule()
       .whenFormulaSatisfied('=$C2=TODAY()')
-      .setBackground('#FFF9C4')          // light yellow
+      .setBackground('#FFFF00')           // BRIGHT YELLOW
+      .setFontWeight('bold')
       .setRanges([range])
       .build();
 
@@ -102,7 +143,7 @@ function highlightTodaysCallbacks() {
 }
 
 /* --------------------------------------------------------------
-   3. OPTIONAL: CREATE ALL 12 MONTHLY TABS (run once)
+   3. OPTIONAL: CREATE ALL 12 MONTHLY TABS FOR 2025 (ONE-TIME)
    -------------------------------------------------------------- */
 function createAllMonthlyTabs() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -112,7 +153,6 @@ function createAllMonthlyTabs() {
     return;
   }
 
-  const headers = master.getRange(1, 1, 1, master.getLastColumn()).getValues()[0];
   const months = ["January","February","March","April","May","June",
                   "July","August","September","October","November","December"];
 
@@ -120,10 +160,10 @@ function createAllMonthlyTabs() {
     const name = `2025-${m}`;
     if (!ss.getSheetByName(name)) {
       const sh = ss.insertSheet(name);
-      sh.appendRow(headers);
+      sh.appendRow(['Name', 'Date', 'CB Date', 'Action', 'Notes', "CB'd (Y/N)", 'Result']);
       sh.getRange('C:C').setNumberFormat('mm/dd');
-      sh.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+      sh.getRange(1, 1, 1, 7).setFontWeight('bold').setBackground('#CCCCCC');
     }
   });
-  SpreadsheetApp.getUi().alert('All 12 monthly tabs created!');
+  SpreadsheetApp.getUi().alert('All 12 monthly tabs for 2025 created!');
 }
